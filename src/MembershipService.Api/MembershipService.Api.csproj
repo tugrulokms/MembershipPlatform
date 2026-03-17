@@ -29,4 +29,11 @@
     <ProjectReference Include="..\MembershipService.Application\MembershipService.Application.csproj" />
   </ItemGroup>
 
+  <!-- Workaround: .NET 10.0.201 SDK bug - Microsoft.NET.Sdk.Web EmbeddedResource glob not expanding on Linux -->
+  <Target Name="ClearEmbeddedResources" BeforeTargets="GenerateResource">
+    <ItemGroup>
+      <EmbeddedResource Remove="@(EmbeddedResource)" />
+    </ItemGroup>
+  </Target>
+
 </Project>

@@ -1,0 +1,52 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.userosscache
+*.sln.docstates
+
+## IDE
+.vs/
+.vscode/
+.idea/
+*.swp
+*~
+
+## macOS
+.DS_Store
+Thumbs.db
+
+## Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+build/
+bld/
+
+## NuGet
+*.nupkg
+**/packages/*
+*.nuget.props
+*.nuget.targets
+
+## BenchmarkDotNet
+BenchmarkDotNet.Artifacts/
+
+## Secrets — never commit
+appsettings.*.local.json
+appsettings.Development.json
+*.pfx
+*.key
+
+## User-specific
+launchSettings.json
+
+## Test results
+TestResults/
+coverage/
+*.trx
+
+/docs

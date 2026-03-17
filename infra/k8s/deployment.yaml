@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: membership-api
+  labels:
+    app: membership-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: membership-api
+  template:
+    metadata:
+      labels:
+        app: membership-api
+    spec:
+      containers:
+      - name: membership-api
+        image: membership-api:latest
+        ports:
+        - containerPort: 8080
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10   # wait 10s before first check
+          periodSeconds: 15         # check every 15s
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          failureThreshold: 3       # fail 3 times before removing from load balancer
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "256Mi"
+          limits:
+            cpu: "1000m"
+            memory: "512Mi"
+
+

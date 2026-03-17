@@ -1,0 +1,6 @@
+<Project>
+  <!-- Workaround: .NET 10.0.201 SDK bug - Microsoft.NET.Sdk.Web EmbeddedResource glob
+       does not expand on Linux, causing MSB3552. Override GenerateResource with empty
+       target since none of these projects contain .resx files. -->
+  <Target Name="GenerateResource" />
+</Project>

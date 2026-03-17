@@ -14,8 +14,7 @@ RUN dotnet restore src/MembershipService.Api/MembershipService.Api.csproj
 COPY src/ src/
 RUN dotnet publish src/MembershipService.Api/MembershipService.Api.csproj \
     -c Release \
-    -o /app/publish \
-    --no-restore
+    -o /app/publish
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app

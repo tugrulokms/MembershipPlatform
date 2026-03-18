@@ -3,6 +3,8 @@ WORKDIR /src
 
 COPY . .
 
+RUN echo "=== /src/src/ contents ===" && ls /src/src/ && echo "=== Directory.Build.targets ===" && cat /src/src/Directory.Build.targets 2>/dev/null || echo "NOT FOUND"
+
 RUN dotnet publish src/MembershipService.Api/MembershipService.Api.csproj \
     -c Release \
     -o /app/publish

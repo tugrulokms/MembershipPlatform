@@ -1,3 +1,5 @@
+using MembershipService.Infrastructure.Jobs;
+using MembershipService.Infrastructure.Messaging;
 using MembershipService.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -31,21 +33,39 @@ public class MembershipApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         .WithPassword("guest")
         .Build();
 
+    private RabbitMQ.Client.IConnection? _rabbitConnection;
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.ConfigureTestServices(services =>
         {
-            // Remove the existing DbContext registration
-            var descriptor = services.SingleOrDefault(
-                d => d.ServiceType == typeof(DbContextOptions<MembershipDbContext>));
-            if (descriptor != null)
-                services.Remove(descriptor);
+            // Remove only the specific background services that create their own
+            // RabbitMQ connections via RabbitMqSettings (which lacks a Port property,
+            // so they can't reach Testcontainers' random mapped port).
+            var typesToRemove = new[]
+            {
+                typeof(OutboxProcessor),
+                typeof(BillingEventConsumer),
+                typeof(DlqConsumer),
+                typeof(SubscriptionExpirationJob)
+            };
+            var descriptorsToRemove = services
+                .Where(d => d.ImplementationType != null &&
+                            typesToRemove.Contains(d.ImplementationType))
+                .ToList();
+            foreach (var d in descriptorsToRemove)
+                services.Remove(d);
 
-            // Point DbContext at the test container
+            // DbContext → test PostgreSQL container
+            var dbDescriptor = services.SingleOrDefault(
+                d => d.ServiceType == typeof(DbContextOptions<MembershipDbContext>));
+            if (dbDescriptor != null)
+                services.Remove(dbDescriptor);
+
             services.AddDbContext<MembershipDbContext>(options =>
                 options.UseNpgsql(_postgres.GetConnectionString()));
 
-            // Override Redis connection
+            // Redis → test container
             var redisDescriptor = services.SingleOrDefault(
                 d => d.ServiceType == typeof(IConnectionMultiplexer));
             if (redisDescriptor != null)
@@ -54,42 +74,24 @@ public class MembershipApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             services.AddSingleton<IConnectionMultiplexer>(_ =>
                 ConnectionMultiplexer.Connect(_redis.GetConnectionString()));
 
-            // Override Redis cache
             services.AddStackExchangeRedisCache(options =>
                 options.Configuration = _redis.GetConnectionString());
 
-            // Override RabbitMQ settings
-            services.Configure<Infrastructure.Messaging.RabbitMqSettings>(opts =>
-            {
-                opts.HostName = _rabbitmq.Hostname;
-                opts.UserName = "guest";
-                opts.Password = "guest";
-                // Testcontainers exposes a mapped port
-                var connectionString = _rabbitmq.GetConnectionString();
-                // Parse port from amqp://guest:guest@localhost:PORT
-                var uri = new Uri(connectionString);
-                opts.HostName = uri.Host;
-                // RabbitMQ.Client ConnectionFactory uses Port property, but our settings don't have it.
-                // We need to use the full hostname:port as HostName won't work alone.
-                // Workaround: set HostName to the full connection string host
-            });
-
-            // Override RabbitMQ IConnection for the mapped port
+            // RabbitMQ IConnection → pre-created connection from InitializeAsync.
+            // This avoids the .GetAwaiter().GetResult() deadlock risk inside a
+            // DI factory and guarantees the connection is open for health checks.
             var rabbitConnDescriptor = services.SingleOrDefault(
                 d => d.ServiceType == typeof(RabbitMQ.Client.IConnection));
             if (rabbitConnDescriptor != null)
                 services.Remove(rabbitConnDescriptor);
 
-            services.AddSingleton<RabbitMQ.Client.IConnection>(sp =>
-            {
-                var connString = _rabbitmq.GetConnectionString();
-                var factory = new RabbitMQ.Client.ConnectionFactory
-                {
-                    Uri = new Uri(connString)
-                };
-                return factory.CreateConnectionAsync().GetAwaiter().GetResult();
-            });
+            services.AddSingleton(_rabbitConnection!);
         });
+
+        // Override connection strings in IConfiguration so that health checks
+        // (which read directly from config, not from DI) hit the test containers.
+        builder.UseSetting("ConnectionStrings:MembershipDb", _postgres.GetConnectionString());
+        builder.UseSetting("ConnectionStrings:Redis", _redis.GetConnectionString());
 
         builder.UseEnvironment("Development");
     }
@@ -100,10 +102,20 @@ public class MembershipApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             _postgres.StartAsync(),
             _redis.StartAsync(),
             _rabbitmq.StartAsync());
+
+        // Create RabbitMQ connection after the container is fully ready
+        var factory = new RabbitMQ.Client.ConnectionFactory
+        {
+            Uri = new Uri(_rabbitmq.GetConnectionString())
+        };
+        _rabbitConnection = await factory.CreateConnectionAsync();
     }
 
     async Task IAsyncLifetime.DisposeAsync()
     {
+        if (_rabbitConnection is not null)
+            await _rabbitConnection.DisposeAsync();
+
         await Task.WhenAll(
             _postgres.DisposeAsync().AsTask(),
             _redis.DisposeAsync().AsTask(),
